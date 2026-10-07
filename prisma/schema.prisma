@@ -1,0 +1,146 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ACCOUNTS DISABLED — guest-only build.
+//
+// Users / Accounts / Sessions / Profiles are gone: there is no
+// registration, no login and no profile statistics. Players are
+// guests identified only in the browser (src/lib/identity.ts), and
+// finished matches are not written to the database either
+// (see src/services/persistence.ts).
+//
+// Kept for reference, uncomment to restore accounts:
+// ============================================================
+// model User {
+//   id           String   @id @default(cuid())
+//   name         String
+//   email        String   @unique
+//   passwordHash String
+//   avatar       String   @default("🙂")
+//   soundOn      Boolean  @default(true)
+//   gamesPlayed  Int      @default(0)
+//   gamesWon     Int      @default(0)
+//   totalScore   Int      @default(0)
+//   createdAt    DateTime @default(now())
+//   players      Player[]
+// }
+
+model Game {
+  id           String             @id @default(cuid())
+  code         String
+  status       String             @default("FINISHED")
+  difficulty   String             @default("MEDIUM")
+  startedAt    DateTime           @default(now())
+  finishedAt   DateTime?
+  players      Player[]
+  bots         BotPlayer[]
+  rounds       Round[]
+  scores       ScoreHistory[]
+  modeHistory  GameModeHistory[]
+  chat         ChatMessage[]
+
+  @@index([code])
+}
+
+model Player {
+  id         String         @id @default(cuid())
+  gameId     String
+  // userId   String?                              // account link removed (guest-only build)
+  seat       Int
+  name       String
+  avatar     String         @default("🙂")
+  isBot      Boolean        @default(false)
+  totalScore Int            @default(0)
+  winner     Boolean        @default(false)
+  game       Game           @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  // user     User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  bot        BotPlayer?
+
+  @@unique([gameId, seat])
+  // @@index([userId])
+}
+
+model BotPlayer {
+  id         String @id @default(cuid())
+  gameId     String
+  playerId   String @unique
+  difficulty String
+  game       Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  player     Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+}
+
+model Round {
+  id           String       @id @default(cuid())
+  gameId       String
+  number       Int
+  mode         String
+  selectorSeat Int
+  hands        Json
+  scores       Json
+  game         Game         @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  tricks       Trick[]
+  playedCards  PlayedCard[]
+
+  @@unique([gameId, number])
+}
+
+model Trick {
+  id          String       @id @default(cuid())
+  roundId     String
+  number      Int
+  leaderSeat  Int
+  winnerSeat  Int
+  round       Round        @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  playedCards PlayedCard[]
+}
+
+model PlayedCard {
+  id      String  @id @default(cuid())
+  roundId String
+  trickId String?
+  seq     Int
+  seat    Int
+  suit    String
+  rank    String
+  meta    Json?
+  round   Round   @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  trick   Trick?  @relation(fields: [trickId], references: [id], onDelete: Cascade)
+
+  @@index([roundId, seq])
+}
+
+model ScoreHistory {
+  id      String @id @default(cuid())
+  gameId  String
+  round   Int
+  seat    Int
+  delta   Int
+  total   Int
+  game    Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+}
+
+model GameModeHistory {
+  id          String @id @default(cuid())
+  gameId      String
+  seat        Int
+  mode        String
+  roundNumber Int
+  game        Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  gameId    String?
+  roomCode  String
+  author    String
+  content   String
+  createdAt DateTime @default(now())
+  game      Game?    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+}
