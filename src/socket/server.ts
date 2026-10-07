@@ -92,23 +92,25 @@ export function attachSocketServer(httpServer: HttpServer, allowedOrigins: strin
   function schedule(room: GameRoom, heavy = false) {
     if (room.timer) clearTimeout(room.timer);
     room.timer = null;
+    room.actionDeadline = null;
+    room.actionDeadlineSeat = null;
     const e = room.engine;
     if (!e || room.status !== "playing" || e.actor() === null) return;
     const seat = e.actor()!;
     const p = room.seats[seat]!;
     const humanAbsent = !p.isBot && !p.connected;
-    if (!p.isBot && !humanAbsent) {
-      // Connected humans act themselves — in Trix they press PASS when they have
-      // no legal move (or only Ace plays). Bots / absent humans fall through to
-      // the auto-act timer below.
-      return;
-    }
-
     const isFifty = e.phase === "playing" && e.round?.mode === "FiftyOne";
     const isSelectingPhase = e.phase === "selecting" || e.phase === "star_sub" || e.phase === "switch_sub" || e.phase === "switch_target";
 
     let delay: number;
-    if (humanAbsent) {
+    if (!p.isBot && !humanAbsent) {
+      delay = isSelectingPhase ? 30_000 : 10_000;
+      room.actionDeadline = Date.now() + delay;
+      room.actionDeadlineSeat = seat;
+      // The deadline is created after the action event's state broadcast.
+      // Publish it immediately so every client can render the countdown.
+      void broadcast(room);
+    } else if (humanAbsent) {
       delay = Math.max(500, DISCONNECT_GRACE_MS - (Date.now() - (p.disconnectedAt ?? Date.now())));
     } else if (isSelectingPhase && p.isBot) {
       // After a round ends, give clients time to read the round summary and watch resolution animations before bots pick a mode.

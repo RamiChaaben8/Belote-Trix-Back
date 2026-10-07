@@ -30,6 +30,9 @@ export class GameRoom {
   saved = false;
   /** Handle for the Switch reveal countdown interval. */
   revealInterval: ReturnType<typeof setInterval> | null = null;
+  /** Deadline for the current connected human action, if one is active. */
+  actionDeadline: number | null = null;
+  actionDeadlineSeat: number | null = null;
 
   constructor(
     readonly code: string,
@@ -156,7 +159,7 @@ export class GameRoom {
     return seat;
   }
 
-  /** Executes one automatic action for a bot (or an absent human). */
+  /** Executes one automatic action for a bot or an expired/disconnected human. */
   autoAct(): EngineEvent[] {
     const e = this.engine;
     if (!e) return [];
@@ -165,7 +168,7 @@ export class GameRoom {
     if (e.phase === "star_sub" && e.selector !== null) {
       const seat = e.selector;
       const p = this.seats[seat]!;
-      const isAuto = p.isBot || (!p.connected && p.disconnectedAt !== null);
+      const isAuto = p.isBot || (!p.connected && p.disconnectedAt !== null) || this.deadlineExpired(seat);
       if (!isAuto) return [];
       const completed = ModeManager.completedModesForStar(e.used);
       if (completed.length === 0) return [];
@@ -181,7 +184,7 @@ export class GameRoom {
     if (e.phase === "switch_sub" && e.selector !== null) {
       const seat = e.selector;
       const p = this.seats[seat]!;
-      const isAuto = p.isBot || (!p.connected && p.disconnectedAt !== null);
+      const isAuto = p.isBot || (!p.connected && p.disconnectedAt !== null) || this.deadlineExpired(seat);
       if (!isAuto) return [];
       const completed = ModeManager.completedModes(e.used);
       if (completed.length === 0) return [];
@@ -193,7 +196,7 @@ export class GameRoom {
     if (e.phase === "switch_target" && e.selector !== null) {
       const seat = e.selector;
       const p = this.seats[seat]!;
-      const isAuto = p.isBot || (!p.connected && p.disconnectedAt !== null);
+      const isAuto = p.isBot || (!p.connected && p.disconnectedAt !== null) || this.deadlineExpired(seat);
       if (!isAuto) return [];
       const others = [0, 1, 2, 3].filter((s) => s !== seat);
       const target = others[Math.floor(this.rng() * others.length)];
@@ -228,17 +231,28 @@ export class GameRoom {
       const seat = e.selector;
       const p = this.seats[seat]!;
       if (p.isBot) return true;
+      if (p.connected && this.deadlineExpired(seat)) return true;
       return !p.connected && p.disconnectedAt !== null && Date.now() - p.disconnectedAt >= graceMs;
     }
+
     const seat = e.actor();
     if (seat === null) return false;
     const p = this.seats[seat]!;
     if (p.isBot) return true;
+    if (p.connected && this.deadlineExpired(seat)) return true;
     return !p.connected && p.disconnectedAt !== null && Date.now() - p.disconnectedAt >= graceMs;
+  }
+
+  private deadlineExpired(seat: number): boolean {
+    return this.actionDeadline !== null &&
+      this.actionDeadlineSeat === seat &&
+      Date.now() >= this.actionDeadline;
   }
 
   finish(): void {
     this.status = "finished";
+    this.actionDeadline = null;
+    this.actionDeadlineSeat = null;
     if (this.revealInterval) {
       clearInterval(this.revealInterval);
       this.revealInterval = null;
@@ -331,6 +345,7 @@ export class GameRoom {
       stats: e ? e.stats() : null,
       starState: starView,
       switchState: switchView,
+      actionDeadline: this.actionDeadline,
       round:
         showRound && e!.phase === "playing"
           ? {
