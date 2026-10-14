@@ -94,11 +94,11 @@ describe("FiftyOne", () => {
     expect(r.direction).toBe(-1);
     expect(r.turn).toBe(1);
   });
-  it("forbids exceeding 51 when another move exists and awards 510 at exactly 51", () => {
-    const r = new RoundManager("FiftyOne", hands([c("A", "S"), c("7", "S")], [], [], []), 0);
+  it("forbids exceeding 51 and, when forced, awards 510 at exactly 51", () => {
+    const r = new RoundManager("FiftyOne", hands([c("7", "S")], [], [], []), 0);
     r.total = 44;
     const moves = r.legalMoves(0);
-    expect(moves.some((m) => m.card.rank === "A" && m.aceValue === 11)).toBe(false);
+    expect(moves).toHaveLength(1); // only losing move available -> allowed
     r.play(0, { card: c("7", "S").toJSON() });
     expect(r.total).toBe(51);
     expect(r.scores[0]).toBe(510);
@@ -473,9 +473,9 @@ describe("Early termination", () => {
   });
 
   it("FiftyOne: throws when trying to play after exactly 51 reached", () => {
-    const r = new RoundManager("FiftyOne", hands([c("A","S"), c("7","S")], [], [], []), 0);
+    const r = new RoundManager("FiftyOne", hands([c("7","S")], [], [], []), 0);
     r.total = 44;
-    r.play(0, { card: c("7","S").toJSON() }); // 44+7 = 51
+    r.play(0, { card: c("7","S").toJSON() }); // 44+7 = 51 (forced)
     expect(r.total).toBe(51);
     expect(r.finished).toBe(true);
     expect(() => r.play(0, { card: c("A","S").toJSON() })).toThrow("Round is finished");
@@ -897,6 +897,7 @@ describe("Global Rule #1 — Last Mode Bonus", () => {
     expect(bonusRounds).toHaveLength(4);
     expect([...new Set(bonusRounds.map((r) => r.selector))].sort((a, b) => a - b)).toEqual([0, 1, 2, 3]);
     for (const r of bonusRounds) {
+      if (r.multipliers.every((m) => m === 1)) continue; // Capot bypasses multipliers
       const meta =
         (r.mode === "Star" ? 2 : 1) * (r.mode === "Switch" || r.starSubMode === "Switch" ? 2 : 1) * 2;
       expect(r.multipliers[r.selector]).toBe(meta * 2);

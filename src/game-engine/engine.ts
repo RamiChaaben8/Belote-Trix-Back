@@ -219,6 +219,40 @@ export class GameEngine {
     return [{ type: "switch_sub_selected", data: { seat, subMode } }];
   }
 
+  /**
+   * Back button for Switch/Star setup: goes exactly ONE step back and keeps already-chosen
+   * values (e.g. the Switch sub-mode stays selected when returning from target selection).
+   */
+  selectionBack(seat: number): EngineEvent[] {
+    if (seat !== this.selector) throw new Error("You are not the selector");
+    if (this.phase === "switch_target") {
+      this.phase = "switch_sub";
+      this.switchState!.phase = "sub_select";
+      return [{ type: "selection_back", data: { seat, to: "switch_sub" } }];
+    }
+    if (this.phase === "switch_sub") {
+      if (this.starState?.subMode === "Switch") {
+        this.phase = "star_sub";
+        this.switchState = null;
+        return [{ type: "selection_back", data: { seat, to: "star_sub" } }];
+      }
+      return this.undoModePick(seat, "Switch");
+    }
+    if (this.phase === "star_sub") return this.undoModePick(seat, "Star");
+    throw new Error("Nothing to go back to");
+  }
+
+  private undoModePick(seat: number, mode: ModeId): EngineEvent[] {
+    const idx = this.used[seat].lastIndexOf(mode);
+    if (idx >= 0) this.used[seat].splice(idx, 1);
+    this.roundNumber--;
+    this.starState = null;
+    this.switchState = null;
+    this.lastModeBonus = false;
+    this.phase = "selecting";
+    return [{ type: "selection_back", data: { seat, to: "selecting" } }];
+  }
+
   /** Switch Step 3: selector picks which player to swap hands with. */
   selectSwitchTarget(seat: number, target: number): EngineEvent[] {
     if (this.phase !== "switch_target") throw new Error("Not in Switch target selection");

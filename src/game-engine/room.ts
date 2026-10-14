@@ -147,6 +147,11 @@ export class GameRoom {
     return this.engine!.selectSwitchTarget(seat, target);
   }
 
+  selectionBack(clientId: string): EngineEvent[] {
+    const seat = this.requireSeat(clientId);
+    return this.engine!.selectionBack(seat);
+  }
+
   play(clientId: string, move: Move): EngineEvent[] {
     const seat = this.requireSeat(clientId);
     return this.engine!.play(seat, move);
@@ -336,8 +341,8 @@ export class GameRoom {
       hand,
       legal,
       handCounts: e
-        ? [0, 1, 2, 3].map(() =>
-            inMetaPhase ? 8 : r ? r.hands[0].length : 8,
+        ? [0, 1, 2, 3].map((i) =>
+            inMetaPhase ? 8 : r ? r.hands[i].length : 8,
           )
         : [0, 0, 0, 0],
       dealer: e ? (e.roundNumber > 0 ? (e.roundNumber - 1) % 4 : 0) : null,

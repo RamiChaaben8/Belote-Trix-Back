@@ -89,13 +89,55 @@ export function attachSocketServer(httpServer: HttpServer, allowedOrigins: strin
     }
   }
 
+  /**
+   * Starts the 10s Switch reveal countdown. Used for BOTH human and AI selectors so the
+   * completion callback (swap + resume play) always runs. Idempotent per room.
+   */
+  function startRevealTimer(room: GameRoom) {
+    if (room.revealInterval) return;
+    console.log(`[switch ${room.code}] Reveal Timer Started`);
+    room.revealInterval = setInterval(async () => {
+      const e = room.engine;
+      if (!e || e.phase !== "switch_reveal") {
+        clearInterval(room.revealInterval!);
+        room.revealInterval = null;
+        return;
+      }
+      try {
+        const tickEvents = e.tickRevealCountdown();
+        if (tickEvents.some((x) => x.type === "switch_swap_complete")) {
+          console.log(`[switch ${room.code}] Reveal Timer Finished`);
+          console.log(`[switch ${room.code}] Swap Animation Started`);
+          clearInterval(room.revealInterval!);
+          room.revealInterval = null;
+        }
+        emitEvents(room, tickEvents);
+        await broadcast(room);
+        if (tickEvents.some((x) => x.type === "switch_swap_complete")) {
+          console.log(`[switch ${room.code}] Swap Complete`);
+          console.log(`[switch ${room.code}] Game Started`);
+          schedule(room);
+        }
+      } catch (err) {
+        console.error("[switch] reveal tick failed", err);
+      }
+    }, 1000);
+  }
+
   function schedule(room: GameRoom, heavy = false) {
     if (room.timer) clearTimeout(room.timer);
     room.timer = null;
     room.actionDeadline = null;
     room.actionDeadlineSeat = null;
     const e = room.engine;
+    if (e && room.status === "playing" && e.phase === "switch_reveal") {
+      startRevealTimer(room);
+      return;
+    }
     if (!e || room.status !== "playing" || e.actor() === null) return;
+    if (e.phase === "switch_sub" && e.selector !== null && room.seats[e.selector]?.isBot) {
+      console.log(`[switch ${room.code}] AI Switch Started`);
+    }
     const seat = e.actor()!;
     const p = room.seats[seat]!;
     const humanAbsent = !p.isBot && !p.connected;
@@ -396,25 +438,23 @@ export function attachSocketServer(httpServer: HttpServer, allowedOrigins: strin
     );
 
     socket.on(
+      "selection_back",
+      guard(z.object({}), async (_d, room) => {
+        const r = requireRoom(room);
+        // No schedule(): the selector's countdown must keep running untouched.
+        emitEvents(r, r.selectionBack(clientId));
+        await broadcast(r);
+      }),
+    );
+
+    socket.on(
       "switch_target",
       guard(z.object({ target: z.number().int().min(0).max(3) }), async (d, room) => {
         const r = requireRoom(room);
         const events = r.selectSwitchTarget(clientId, d.target);
         emitEvents(r, events);
-        // Start 10-second reveal countdown
-        if (r.revealInterval) clearInterval(r.revealInterval);
-        r.revealInterval = setInterval(async () => {
-          if (!r.engine) return;
-          const tickEvents = r.engine.tickRevealCountdown();
-          emitEvents(r, tickEvents);
-          await broadcast(r);
-          if (tickEvents.some((e) => e.type === "switch_swap_complete")) {
-            clearInterval(r.revealInterval!);
-            r.revealInterval = null;
-            schedule(r);
-          }
-        }, 1000);
         await broadcast(r);
+        schedule(r); // starts the shared reveal timer
       }),
     );
 

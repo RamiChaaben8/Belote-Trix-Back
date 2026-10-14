@@ -266,7 +266,15 @@ export class FiftyOneMode {
     }
   }
 
-  /** All candidate moves for a hand, filtered so that the total never exceeds 51. */
+  /** True if the move makes the total land exactly on 51 (the mover loses). */
+  static isLosing(total: number, move: Move): boolean {
+    return FiftyOneMode.next(total, move) === FIFTY_ONE_TARGET;
+  }
+
+  /**
+   * All candidate moves for a hand. The total may never exceed 51, and a move that
+   * reaches exactly 51 (a losing move) is only allowed when no safer move exists.
+   */
   static legalMoves(hand: Card[], total: number): Move[] {
     const moves: Move[] = [];
     for (const c of hand) {
@@ -276,7 +284,9 @@ export class FiftyOneMode {
         moves.push({ card: c.toJSON() });
       }
     }
-    return moves.filter((m) => total + FiftyOneMode.delta(m) <= FIFTY_ONE_TARGET);
+    const playable = moves.filter((m) => total + FiftyOneMode.delta(m) <= FIFTY_ONE_TARGET);
+    const safe = playable.filter((m) => !FiftyOneMode.isLosing(total, m));
+    return safe.length > 0 ? safe : playable;
   }
 
   static next(total: number, move: Move): number {
